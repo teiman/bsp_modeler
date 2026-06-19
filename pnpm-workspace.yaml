@@ -1,0 +1,10 @@
+# Seguridad de la cadena de suministro (ver plan.md §0).
+# Rechaza versiones publicadas hace menos de 3 dias (3 × 24 × 60 = 4320 min).
+# Aplica a TODAS las dependencias, incluidas las transitivas.
+minimumReleaseAge: 4320
+
+# Excepciones de confianza que pueden instalarse al instante (descomentar si
+# alguna release de confianza nos bloquea):
+# minimumReleaseAgeExclude:
+#   - vue
+#   - vite

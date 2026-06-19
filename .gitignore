@@ -1,0 +1,11 @@
+node_modules/
+dist/
+tmp/
+# Toolchain de terceros (ericw-tools: qbsp/light/vis ~93MB). Se copia a bin/
+# desde editor-map; no se versiona. Ver README / plan.md §0.
+bin/
+# Los PNG de textures/ son la FUENTE (se versionan). Los .tex son cache de
+# indices de paleta que el servidor autogenera desde el PNG cuando falta.
+textures/*.tex
+ref/
+*.log
