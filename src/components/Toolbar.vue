@@ -1,12 +1,23 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { store } from '../store.js'
 import { compileModel } from '../api.js'
 
 const compiling = ref(false)
 const log = ref('')
 const bspUrl = ref(null)
-const quality = ref('fast')
+
+/** Nombre de fichero seguro para la descarga: <nombre del modelo>.bsp */
+const bspFileName = computed(() => {
+  const safe = (store.fileName || 'modelo').trim().replace(/[^\w.-]+/g, '_') || 'modelo'
+  return `${safe}.bsp`
+})
+
+/** URL de descarga con el nombre del modelo (el servidor pone Content-Disposition). */
+const bspDownloadUrl = computed(() =>
+  bspUrl.value ? `${bspUrl.value}?name=${encodeURIComponent(bspFileName.value)}` : null
+)
+const quality = ref('hq')
 const logOpen = ref(false)      // panel flotante visible
 const logCollapsed = ref(false) // solo la barra de titulo
 
@@ -64,6 +75,13 @@ async function onFile(e) {
       <button :class="{ active: store.mode === 'paint' }" @click="store.setMode('paint')">Pintar (P)</button>
     </div>
 
+    <button
+      class="toggle"
+      :class="{ active: store.showAnchors }"
+      :title="store.showAnchors ? 'Ocultar anclas (marcadores)' : 'Mostrar anclas (marcadores)'"
+      @click="store.toggleAnchors()"
+    >⚓ Anclas: {{ store.showAnchors ? 'on' : 'off' }}</button>
+
     <div class="spacer"></div>
 
     <button @click="store.undo()" title="Deshacer (Ctrl+Z)">↶</button>
@@ -75,14 +93,19 @@ async function onFile(e) {
     <input ref="fileInput" type="file" accept=".json" hidden @change="onFile" />
 
     <select v-model="quality" title="Perfil de compilación">
-      <option value="flat">flat (rápido, sin luz)</option>
-      <option value="fast">fast</option>
-      <option value="hq">hq (lento)</option>
+      <option value="starfall">c1 · Starfall (colisión de casco · SOLID_BSP)</option>
+      <option value="starfallsun">c2 · Starfall + sol (casco + luz cenital)</option>
+      <option value="hqaop">c3 · alta + AO + Phong (suaviza curvas)</option>
+      <option value="hqao">c4 · alta + AO (oclusión ambiental)</option>
+      <option value="hq">c5 · alta (luz)</option>
+      <option value="classic">c6 · Modo clásico (8 luces alrededor)</option>
+      <option value="fast">c7 · rápida</option>
+      <option value="flat">c8 · plana (sin luz)</option>
     </select>
     <button class="compile" :disabled="compiling" @click="compile">
       {{ compiling ? 'Compilando…' : 'Compilar BSP' }}
     </button>
-    <a v-if="bspUrl" class="dl" :href="bspUrl" download>⬇ .bsp</a>
+    <a v-if="bspUrl" class="dl" :href="bspDownloadUrl" :download="bspFileName">⬇ {{ bspFileName }}</a>
   </div>
 
   <!-- Log de compilacion: panel FLOTANTE colapsable, por encima del viewport. -->
@@ -92,7 +115,7 @@ async function onFile(e) {
       <span class="logtitle">Log de compilación</span>
       <span v-if="compiling" class="spin">compilando…</span>
       <span class="grow"></span>
-      <a v-if="bspUrl" class="dl small" :href="bspUrl" download @click.stop>⬇ .bsp</a>
+      <a v-if="bspUrl" class="dl small" :href="bspDownloadUrl" :download="bspFileName" @click.stop>⬇ {{ bspFileName }}</a>
       <button class="iconbtn" title="Cerrar" @click.stop="logOpen = false">✕</button>
     </div>
     <pre v-show="!logCollapsed" class="logbody">{{ log }}</pre>
@@ -117,6 +140,7 @@ button, select, .dl {
 }
 button:hover, select:hover { border-color: #6f4bd8; }
 .seg button.active { background: #6f4bd8; color: #fff; border-color: #9b7bff; }
+.toggle.active { background: #6f4bd8; color: #fff; border-color: #9b7bff; }
 .compile { background: #2f7d4f; color: #fff; border-color: #3ba066; }
 .compile:disabled { opacity: 0.6; cursor: default; }
 .dl { background: #3a3647; }

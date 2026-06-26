@@ -16,16 +16,45 @@
 export const TEX_SIZE = 64
 
 function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] }
+function cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]] }
+function norm(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l] }
+
+// Una normal se considera ALINEADA A EJE si una de sus componentes domina
+// claramente (cara recta: +Z, -X, ...). Si dos componentes son comparables, la
+// cara es DIAGONAL (p.ej. un ala a 45° o un chaflan) y la proyeccion world-
+// aligned la estira y la hace "saltar". Umbral: la 2ª componente < 0.85 * la 1ª.
+function isAxisAligned(normal) {
+  const a = [Math.abs(normal[0]), Math.abs(normal[1]), Math.abs(normal[2])].sort((p, q) => q - p)
+  return a[1] < 0.85 * a[0]
+}
 
 /**
- * Ejes base U/V world-aligned segun el eje dominante de la normal. MISMO criterio
- * que server/compile/brushes.js (texAxes), para que preview y .map coincidan.
+ * Ejes base U/V de una cara segun su normal.
+ *
+ * - Cara ALINEADA A EJE: ejes WORLD-ALIGNED por eje dominante (Valve 220 clasico).
+ *   MISMO criterio que server/compile/brushes.js, para que preview y .map
+ *   coincidan. Es lo que queremos para cubos/rampas rectas.
+ * - Cara DIAGONAL (normal a 45°, etc.): ejes ALINEADOS A LA SUPERFICIE de la
+ *   cara, no a mundo. Asi la textura sigue la inclinacion sin estirarse ni
+ *   romper entre caras (p.ej. alas en X, chaflanes). U se toma horizontal dentro
+ *   del plano cuando se puede; V = normal x U.
  */
 export function baseAxes(normal) {
-  const ax = Math.abs(normal[0]), ay = Math.abs(normal[1]), az = Math.abs(normal[2])
-  if (az >= ax && az >= ay) return { u: [1, 0, 0], v: [0, -1, 0] } // cara horizontal
-  if (ax >= ay) return { u: [0, 1, 0], v: [0, 0, -1] }             // este/oeste
-  return { u: [1, 0, 0], v: [0, 0, -1] }                           // norte/sur
+  if (isAxisAligned(normal)) {
+    const ax = Math.abs(normal[0]), ay = Math.abs(normal[1]), az = Math.abs(normal[2])
+    if (az >= ax && az >= ay) return { u: [1, 0, 0], v: [0, -1, 0] } // cara horizontal
+    if (ax >= ay) return { u: [0, 1, 0], v: [0, 0, -1] }             // este/oeste
+    return { u: [1, 0, 0], v: [0, 0, -1] }                           // norte/sur
+  }
+  // Cara diagonal: ejes en el plano de la cara. U = direccion "horizontal" sobre
+  // la cara (perpendicular a la normal y al eje Z mundial); si la cara es casi
+  // horizontal, usa el eje X mundial como semilla. V = U x normal (apunta hacia
+  // "abajo" en el plano, coherente con la V world-aligned que va en -Z/-Y).
+  const n = norm(normal)
+  const seed = Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]
+  const u = norm(cross(seed, n))   // horizontal dentro del plano de la cara
+  const v = norm(cross(u, n))      // completa la base; V hacia abajo en el plano
+  return { u, v }
 }
 
 /** Rota los ejes U/V dentro del plano de la cara `deg` grados. */

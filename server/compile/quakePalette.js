@@ -57,10 +57,26 @@ export const QUAKE_PALETTE_FLAT = (() => {
   return out
 })()
 
-/** Indice de paleta mas cercano a [r,g,b] (solo indices normales 0..223). */
-export function nearestIndex(r, g, b) {
-  let best = 0, bestD = Infinity
-  for (let i = 0; i < FULLBRIGHT_START; i++) {
+/**
+ * Indice de paleta mas cercano a [r,g,b], restringido a un rango segun `mode`:
+ *   'normal' (def): solo indices NORMALES (0..223) — evita meter fullbright por
+ *     accidente al cuantizar una textura normal (carpeta textures/).
+ *   'fb': solo indices FULLBRIGHT (224..255) — para texturas que deben brillar
+ *     siempre (carpeta textures/fb/). El color sale del fullbright mas parecido.
+ *   'all': TODA la paleta (0..255) — para texturas que YA usan colores exactos
+ *     de Quake (carpeta textures/all/). Cada pixel cae en su indice exacto, sea
+ *     normal o fullbright, decidido POR PIXEL.
+ *
+ * Acepta tambien el booleano antiguo (true == 'fb', false == 'normal') por
+ * compatibilidad con llamadas existentes.
+ */
+export function nearestIndex(r, g, b, mode = 'normal') {
+  if (mode === true) mode = 'fb'
+  else if (mode === false) mode = 'normal'
+  const lo = mode === 'fb' ? FULLBRIGHT_START : 0
+  const hi = mode === 'normal' ? FULLBRIGHT_START : PALETTE_SIZE
+  let best = lo, bestD = Infinity
+  for (let i = lo; i < hi; i++) {
     const p = QUAKE_PALETTE[i]
     const dr = r - p[0], dg = g - p[1], db = b - p[2]
     const d = dr * dr + dg * dg + db * db

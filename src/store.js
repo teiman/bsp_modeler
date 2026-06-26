@@ -9,8 +9,8 @@
 
 import { reactive } from 'vue'
 import {
-  createModel, placeBlock, removeBlock, rotateBlock, blockAtCell,
-  setFaceTexture, serialize, deserialize,
+  createModel, placeBlock, removeBlock, removeBlockById, rotateBlock, blockAtCell,
+  setFaceTexture, setBlockLabel, serialize, deserialize,
 } from './core/model.js'
 import { MODULE_LIST } from './blocks/catalog.js'
 import { rotateOrientation, ORIENT_IDENTITY } from './core/orientations.js'
@@ -51,6 +51,7 @@ export const store = reactive({
   dirty: 0,               // se incrementa en cada cambio (para watchers)
   fileName: _view.fileName || 'modelo', // nombre del modelo actual
   catalogOpen: false,     // overlay del catalogo visible
+  showAnchors: _view.showAnchors !== false, // mostrar marcadores/anclas en el viewport (ruido visual)
 
   _undo: [],
   _redo: [],
@@ -71,7 +72,7 @@ export const store = reactive({
       localStorage.setItem(VIEW_KEY, JSON.stringify({
         placeLayer: this.placeLayer, activeModule: this.activeModule,
         mode: this.mode, activeTexture: this.activeTexture, placeRot: this.placeRot,
-        paintWhole: this.paintWhole, fileName: this.fileName,
+        paintWhole: this.paintWhole, fileName: this.fileName, showAnchors: this.showAnchors,
       }))
     } catch {}
   },
@@ -80,10 +81,18 @@ export const store = reactive({
   setMode(m) { this.mode = m; this.hoverCell = null; this.hoverFace = null; this._saveView() },
   setActiveTexture(id) { this.activeTexture = id; this._saveView() },
   setPaintWhole(v) { this.paintWhole = !!v; this._saveView() },
+  toggleAnchors() { this.showAnchors = !this.showAnchors; this._saveView() },
 
   place(cell) {
     this._snapshot()
-    placeBlock(this.model, this.activeModule, cell, this.placeRot)
+    const block = placeBlock(this.model, this.activeModule, cell, this.placeRot)
+    // Autopintado: la pieza recien colocada nace pintada entera con la textura
+    // activa, para no tener que pintarla cara a cara despues.
+    if (this.activeTexture) {
+      for (const fid of blockFaceIds(block, this.model.cellSize)) {
+        setFaceTexture(this.model, fid, this.activeTexture)
+      }
+    }
     this._touch()
   },
   erase(cell) {
@@ -92,7 +101,67 @@ export const store = reactive({
     removeBlock(this.model, cell)
     this._touch()
   },
+  /**
+   * Borra el bloque cuya cara esta bajo el cursor (faceId "<blockId>:<cara>"),
+   * sin depender de la capa Z activa. Resuelve el caso "no puedo borrar este
+   * bloque" cuando la pieza esta en otra capa distinta de placeLayer.
+   */
+  eraseById(faceId) {
+    if (!faceId) return
+    const blockId = faceId.slice(0, faceId.indexOf(':'))
+    if (!this.model.blocks.some((b) => b.id === blockId)) return
+    this._snapshot()
+    removeBlockById(this.model, blockId)
+    this._touch()
+  },
+  /**
+   * Borra el bloque bajo el cursor (tecla Suprimir). Prioriza la cara bajo el
+   * cursor (picking 3D, cualquier capa); si no hay, cae a la celda hover en la
+   * capa activa. Devuelve true si borro algo (para que la UI no haga otra cosa).
+   */
+  eraseHover(faceId) {
+    if (faceId) {
+      const blockId = faceId.slice(0, faceId.indexOf(':'))
+      if (this.model.blocks.some((b) => b.id === blockId)) {
+        this._snapshot(); removeBlockById(this.model, blockId); this._touch(); return true
+      }
+    }
+    if (this.hoverCell && blockAtCell(this.model, this.hoverCell)) {
+      this._snapshot(); removeBlock(this.model, this.hoverCell); this._touch(); return true
+    }
+    return false
+  },
+  /** Bloque cuya cara/celda esta bajo el cursor, o null (para editar su label). */
+  hoverBlock(faceId) {
+    if (faceId) {
+      const blockId = faceId.slice(0, faceId.indexOf(':'))
+      const b = this.model.blocks.find((x) => x.id === blockId)
+      if (b) return b
+    }
+    return this.hoverCell ? blockAtCell(this.model, this.hoverCell) : null
+  },
+  /** Asigna el texto (label) de un bloque por id — para los marcadores (anchor). */
+  setBlockLabel(blockId, label) {
+    if (!this.model.blocks.some((b) => b.id === blockId)) return
+    this._snapshot()
+    setBlockLabel(this.model, blockId, label)
+    this._touch()
+  },
   setPlaceRot(o) { this.placeRot = o; this._saveView() },
+  /**
+   * Cuentagotas: adopta el tipo (key) y la orientacion (rot) del bloque cuya
+   * cara esta bajo el cursor (faceId "<blockId>:<cara>") como modulo/orientacion
+   * de colocacion activos. No coloca nada; el fantasma pasa a ser esa pieza.
+   */
+  pickModule(faceId) {
+    if (!faceId) return
+    const blockId = faceId.slice(0, faceId.indexOf(':'))
+    const block = this.model.blocks.find((b) => b.id === blockId)
+    if (!block) return
+    this.activeModule = block.key
+    this.placeRot = block.rot | 0
+    this._saveView()
+  },
   /**
    * Rota 90° sobre un eje. axis: 'z' (yaw), 'x' (tumbar adelante/atras —
    * sirve para poner una rampa boca abajo), 'y' (tumbar a los lados).

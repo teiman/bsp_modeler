@@ -32,17 +32,20 @@ describe('texturizado por cara (BSP)', () => {
     expect(Math.max(...us) - Math.min(...us)).toBeCloseTo(0.5, 5)
   })
 
-  it('el .map emite scale/offset/rot por cara', () => {
-    const m = createModel()
-    const b = placeBlock(m, 'cube', [0, 0, 0])
-    setFaceTexture(m, faceId(b.id, '+Z'), 'brick')
-    setFaceParams(m, faceId(b.id, '+Z'), { scale: [2, 3], offset: [8, 0] })
-    const { map } = writeMap(serialize(m))
-    // La cara brick debe llevar uScale=2 vScale=3 al final de su linea.
-    const line = map.split('\n').find((l) => l.includes(' brick '))
-    expect(line).toBeTruthy()
-    expect(line.trim().endsWith('0 2 3')).toBe(true) // rot uScale vScale
-    expect(line).toContain('8 ]') // uOffset emitido
+  it('el .map emite scale por cara y el offset del usuario desplaza la textura', () => {
+    const lineFor = (off) => {
+      const m = createModel()
+      const b = placeBlock(m, 'cube', [0, 0, 0])
+      setFaceTexture(m, faceId(b.id, '+Z'), 'brick')
+      setFaceParams(m, faceId(b.id, '+Z'), { scale: [2, 3], offset: [off, 0] })
+      return writeMap(serialize(m)).map.split('\n').find((l) => l.includes(' brick '))
+    }
+    const l0 = lineFor(0)
+    expect(l0.trim().endsWith('0 2 3')).toBe(true) // rot uScale vScale
+    // El offset emitido lleva horneado el anclaje a la esquina de la cara; un
+    // offset de usuario +8 debe producir un uOffset 8 mayor que el de offset 0.
+    const uOff = (l) => Number(/\[\s*\S+\s+\S+\s+\S+\s+(\S+)\s*\]/.exec(l)[1])
+    expect(uOff(lineFor(8)) - uOff(l0)).toBeCloseTo(8, 5)
   })
 
   it('cambiar de textura conserva los params de ajuste', () => {

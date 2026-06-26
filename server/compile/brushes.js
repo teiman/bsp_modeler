@@ -39,10 +39,22 @@ export function faceLine(verts, normal, ft) {
   // Nombre canonico (<=15 chars) — debe coincidir con el del WAD.
   const tex = wadName((ft && ft.tex) || 'default')
   const axes = faceAxes(normal, ft || {})
-  const uOff = ft && ft.offset ? ft.offset[0] : 0
-  const vOff = ft && ft.offset ? ft.offset[1] : 0
   const uScale = ft && ft.scale ? ft.scale[0] : 1
   const vScale = ft && ft.scale ? ft.scale[1] : 1
+  // Quake calcula texel = dot(p, axis)/scale + offset, anclado al ORIGEN del
+  // mundo. El preview, en cambio, ancla la textura a la ESQUINA (minimo) de la
+  // cara. Para que coincidan (WYSIWYG), horneamos ese anclaje en el offset:
+  // restamos el minimo de dot(p,axis)/scale sobre la cara. Asi el texel 0 cae
+  // en la esquina de la cara, igual que en el editor — sin el desfase de medio
+  // tile que aparecia al estar las caras centradas en el origen de celda.
+  const dot = (p, a) => p[0] * a[0] + p[1] * a[1] + p[2] * a[2]
+  let minU = Infinity, minV = Infinity
+  for (const p of verts) {
+    minU = Math.min(minU, dot(p, axes.u) / uScale)
+    minV = Math.min(minV, dot(p, axes.v) / vScale)
+  }
+  const uOff = (ft && ft.offset ? ft.offset[0] : 0) - minU
+  const vOff = (ft && ft.offset ? ft.offset[1] : 0) - minV
   return (
     `( ${fmt(p1)} ) ( ${fmt(p2)} ) ( ${fmt(p3)} ) ${tex} ` +
     `[ ${num(axes.u[0])} ${num(axes.u[1])} ${num(axes.u[2])} ${num(uOff)} ] ` +

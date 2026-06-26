@@ -1,11 +1,44 @@
 node_modules/
 dist/
 tmp/
-# Toolchain de terceros (ericw-tools: qbsp/light/vis ~93MB). Se copia a bin/
-# desde editor-map; no se versiona. Ver README / plan.md §0.
+
+# Third-party toolchain (ericw-tools: qbsp/light/vis ~93MB). Copied into bin/
+# from a local checkout; not versioned. See README.
 bin/
-# Los PNG de textures/ son la FUENTE (se versionan). Los .tex son cache de
-# indices de paleta que el servidor autogenera desde el PNG cuando falta.
+
+# The PNGs in textures/ are the SOURCE (versioned). The .tex files are a cache
+# of palette indices the server auto-generates from the PNG when missing.
 textures/*.tex
+
+# External reference codebases / material (not ours).
 ref/
+
+# Logs
 *.log
+
+# Internal development notes (not part of the public release).
+bsp_modeler
+plan.md
+findings.md
+modelos.md
+starship_bsp.md
+starfall_hull_collision.md
+submodels_hull_collision.txt
+
+# Internal model assets and one-off generation scripts.
+modelos/
+scripts/build-starship.mjs
+scripts/gen-ball.mjs
+scripts/gen-hedgehog.mjs
+
+# Fluxite suggestions
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.claude/
+.cursor/
+.vscode/
+.idea/
+.env
+npm-debug.log*

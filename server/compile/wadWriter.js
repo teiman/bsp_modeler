@@ -17,7 +17,7 @@
 
 import fs from 'node:fs/promises'
 import { nearestIndex } from './quakePalette.js'
-import { ensureTex, wadName } from './textures.js'
+import { ensureTex, wadName, animFrames, listTextureIds } from './textures.js'
 
 const TYP_MIPTEX = 0x44
 
@@ -72,6 +72,16 @@ const TILE = 64
 export async function writeWad(names, outPath) {
   const lumps = []
   const seen = new Set()
+  // Texturas ANIMADAS: una cara solo referencia el frame `+0name`, pero el WAD
+  // debe llevar todos los frames (`+1name`, ...) para que el motor los cicle.
+  // Expandimos cada nombre a sus frames hermanos presentes en textures/.
+  const ids = await listTextureIds()
+  const expanded = []
+  const pushed = new Set()
+  for (const name of names)
+    for (const fr of await animFrames(name, ids))
+      if (!pushed.has(fr)) { pushed.add(fr); expanded.push(fr) }
+  names = expanded
   for (const name of names) {
     // Nombre canonico (<=15 chars) — el MISMO que referencia el .map (brushes.js).
     const canon = wadName(name)

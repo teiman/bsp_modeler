@@ -5,7 +5,7 @@
  * enteras, mas un mapa `faceId -> texturaId` que vive aparte (forma y textura
  * estan DESLIGADAS — ver plan.md §5).
  *
- * Un BLOQUE = { id, key, cell:[x,y,z], rot } donde:
+ * Un BLOQUE = { id, key, cell:[x,y,z], rot, label? } donde:
  *   - key  : tipo de modulo del catalogo (cube, ramp, bevel, ...)
  *   - cell : posicion en celdas (enteros). El centro de la celda en mundo es
  *            cell * CELL_SIZE.
@@ -13,6 +13,9 @@
  *            Permite cualquier orientacion alineada a ejes (p.ej. una rampa
  *            boca abajo o tumbada), no solo el yaw. Los 0..3 son el yaw puro
  *            (compatibilidad con el modelo antiguo).
+ *   - label: SOLO para marcadores (key 'anchor'): el texto del anclaje, que el
+ *            mapWriter escribe como `classname` de la entidad invisible en el
+ *            .bsp (p.ej. "frontal barrage"). Opcional; ausente en bloques solidos.
  *
  * faceId ESTABLE: identifica una cara concreta de un bloque concreto como
  *   `${blockId}:${faceName}` (p.ej. "b3:+Z"). No depende de la posicion ni de
@@ -91,6 +94,35 @@ export function removeBlock(model, cell) {
   return true
 }
 
+/**
+ * Borra un bloque por su id (si existe) y sus texturas asociadas. Util para
+ * borrar lo que esta bajo el cursor (picking de cara) sin depender de la celda
+ * ni de la capa Z activa.
+ */
+export function removeBlockById(model, blockId) {
+  const before = model.blocks.length
+  model.blocks = model.blocks.filter((b) => b.id !== blockId)
+  if (model.blocks.length === before) return false
+  for (const fid of Object.keys(model.faceTextures)) {
+    if (fid.startsWith(blockId + ':')) delete model.faceTextures[fid]
+  }
+  return true
+}
+
+/**
+ * Asigna el texto (label) de un bloque por id. Sirve para los marcadores
+ * (anchor): ese texto acaba como `classname` de la entidad invisible en el .bsp.
+ * `label` vacio/null borra el campo. Devuelve true si el bloque existe.
+ */
+export function setBlockLabel(model, blockId, label) {
+  const b = model.blocks.find((x) => x.id === blockId)
+  if (!b) return false
+  const t = (label || '').trim()
+  if (t) b.label = t
+  else delete b.label
+  return true
+}
+
 /** Rota el bloque de una celda 90° sobre un eje ('z'|'x'|'y', dir ±1). */
 export function rotateBlock(model, cell, axis = 'z', dir = 1) {
   const b = blockAtCell(model, cell)
@@ -139,7 +171,10 @@ export function serialize(model) {
   return {
     format: FORMAT,
     cellSize: model.cellSize,
-    blocks: model.blocks.map((b) => ({ id: b.id, key: b.key, cell: b.cell, rot: b.rot })),
+    blocks: model.blocks.map((b) => (
+      b.label ? { id: b.id, key: b.key, cell: b.cell, rot: b.rot, label: b.label }
+              : { id: b.id, key: b.key, cell: b.cell, rot: b.rot }
+    )),
     faceTextures: { ...model.faceTextures },
   }
 }
@@ -156,9 +191,11 @@ export function deserialize(data) {
   // Forzamos el cellSize actual; las celdas son indices enteros, asi que la
   // disposicion del modelo no cambia, solo su escala en mundo.
   model.cellSize = CELL_SIZE
-  model.blocks = (data.blocks || []).map((b) => ({
-    id: b.id, key: b.key, cell: [...b.cell], rot: (b.rot || 0) | 0,
-  }))
+  model.blocks = (data.blocks || []).map((b) => {
+    const blk = { id: b.id, key: b.key, cell: [...b.cell], rot: (b.rot || 0) | 0 }
+    if (b.label) blk.label = b.label
+    return blk
+  })
   // Normaliza faceTextures: el formato viejo guardaba un string (solo el nombre
   // de textura); ahora es { tex, scale, offset, rot }.
   model.faceTextures = {}

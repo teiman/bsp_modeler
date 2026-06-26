@@ -2,7 +2,7 @@
   "name": "bsp_modeler",
   "version": "0.1.0",
   "private": true,
-  "description": "Generador de modelos en formato BSP: ensambla geometria con bloques en grid y texturiza por face; el servidor compila el BSP con el toolchain qbsp/light/vis",
+  "description": "BSP model generator: assemble geometry from grid blocks and texture per face; the server compiles the BSP with the qbsp/light/vis toolchain",
   "type": "module",
   "scripts": {
     "start": "node server/index.js",

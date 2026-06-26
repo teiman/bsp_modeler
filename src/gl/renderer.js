@@ -12,39 +12,57 @@
 const VERT = `
 attribute vec3 aPos;
 attribute vec2 aUV;
+attribute vec4 aTileRect;
 attribute vec3 aNormal;
 uniform mat4 uMVP;
 varying vec2 vUV;
+varying vec4 vTileRect;
 varying vec3 vNormal;
 varying float vDist;
 void main() {
   vec4 p = uMVP * vec4(aPos, 1.0);
   gl_Position = p;
   vUV = aUV;
+  vTileRect = aTileRect;
   vNormal = aNormal;
   vDist = p.w;
+}`
+
+// Modelo de luz compartido (mesh y fantasma usan el mismo shade() para no
+// divergir). Sensacion: foco CENITAL alto, mucho mas iluminado por arriba que
+// por abajo. Sube CONTRAST/lo cenital o baja FLOOR para acentuarlo.
+//   - key   : luz direccional principal desde arriba (lee el relieve).
+//   - hemi  : ambiente cielo->suelo segun n.z (volumen en caras no iluminadas).
+//   - top   : termino cenital puro: premia mirar arriba, hunde el suelo.
+const LIGHT_GLSL = `
+float shade(vec3 n) {
+  float key  = max(dot(n, normalize(vec3(0.25, -0.2, 1.0))), 0.0);
+  float hemi = 0.5 + 0.5 * n.z;          // 1 arriba, 0.5 lateral, 0 abajo
+  float top  = max(n.z, 0.0);            // foco cenital: solo lo que mira al cielo
+  // FLOOR ambiente bajo (suelo oscuro) + cenital fuerte (cielo brillante).
+  float lit = 0.22 + 0.40 * hemi + 0.45 * key + 0.45 * top;
+  return min(lit, 1.0);
 }`
 
 const FRAG = `
 precision mediump float;
 varying vec2 vUV;
+varying vec4 vTileRect;
 varying vec3 vNormal;
 varying float vDist;
 uniform sampler2D uTex;
 uniform vec3 uFogColor;
 uniform float uFogNear;
 uniform float uFogFar;
+${LIGHT_GLSL}
 void main() {
-  vec4 c = texture2D(uTex, vUV);
+  // vUV viene en BALDOSAS (puede salirse de [0,1] en caras grandes). Envolvemos
+  // con fract() y mapeamos dentro del tile del atlas [tileRect.xy .. .zw], asi la
+  // textura se REPITE sin clampear ni invadir tiles vecinos del atlas.
+  vec2 tuv = vTileRect.xy + fract(vUV) * (vTileRect.zw - vTileRect.xy);
+  vec4 c = texture2D(uTex, tuv);
   vec3 n = normalize(vNormal);
-  // Luz principal CENITAL (desde arriba) para leer bien el relieve: las caras
-  // que miran al cielo se iluminan, las que miran abajo quedan en sombra.
-  vec3 keyDir = normalize(vec3(0.25, -0.2, 1.0));
-  float key = max(dot(n, keyDir), 0.0);
-  // Ambiente hemisferico: gradiente cielo->suelo segun la inclinacion de la
-  // normal en Z. Da volumen incluso a las caras no iluminadas directamente.
-  float hemi = 0.5 + 0.5 * n.z;          // 1 arriba, 0.5 lateral, 0 abajo
-  float lit = 0.35 + 0.55 * hemi + 0.55 * key;
+  float lit = shade(n);
   vec3 col = c.rgb * lit;
   float fog = clamp((vDist - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);
   col = mix(col, uFogColor, fog);
@@ -74,11 +92,9 @@ precision mediump float;
 varying vec3 vNormal;
 uniform vec3 uColor;
 uniform float uAlpha;
+${LIGHT_GLSL}
 void main() {
-  vec3 n = normalize(vNormal);
-  float key = max(dot(n, normalize(vec3(0.25, -0.2, 1.0))), 0.0);
-  float hemi = 0.5 + 0.5 * n.z;
-  float lit = 0.35 + 0.55 * hemi + 0.55 * key;
+  float lit = shade(normalize(vNormal));
   gl_FragColor = vec4(uColor * lit, uAlpha);
 }`
 
@@ -200,20 +216,25 @@ export class Renderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
   }
 
-  /** Sube la malla construida por buildMesh ({ positions, uvs, normals, triFaceId }). */
+  /** Sube la malla de buildMesh ({ positions, uvs, tileRects, normals, triFaceId }). */
   setMesh(mesh) {
     const gl = this.gl
     const n = mesh.triCount * 3
-    const data = new Float32Array(n * 8)
+    // Layout por vertice (12 floats): pos(3) uv(2) tileRect(4) normal(3).
+    const data = new Float32Array(n * 12)
     for (let i = 0; i < n; i++) {
-      data[i * 8 + 0] = mesh.positions[i * 3 + 0]
-      data[i * 8 + 1] = mesh.positions[i * 3 + 1]
-      data[i * 8 + 2] = mesh.positions[i * 3 + 2]
-      data[i * 8 + 3] = mesh.uvs[i * 2 + 0]
-      data[i * 8 + 4] = mesh.uvs[i * 2 + 1]
-      data[i * 8 + 5] = mesh.normals[i * 3 + 0]
-      data[i * 8 + 6] = mesh.normals[i * 3 + 1]
-      data[i * 8 + 7] = mesh.normals[i * 3 + 2]
+      data[i * 12 + 0] = mesh.positions[i * 3 + 0]
+      data[i * 12 + 1] = mesh.positions[i * 3 + 1]
+      data[i * 12 + 2] = mesh.positions[i * 3 + 2]
+      data[i * 12 + 3] = mesh.uvs[i * 2 + 0]
+      data[i * 12 + 4] = mesh.uvs[i * 2 + 1]
+      data[i * 12 + 5] = mesh.tileRects[i * 4 + 0]
+      data[i * 12 + 6] = mesh.tileRects[i * 4 + 1]
+      data[i * 12 + 7] = mesh.tileRects[i * 4 + 2]
+      data[i * 12 + 8] = mesh.tileRects[i * 4 + 3]
+      data[i * 12 + 9] = mesh.normals[i * 3 + 0]
+      data[i * 12 + 10] = mesh.normals[i * 3 + 1]
+      data[i * 12 + 11] = mesh.normals[i * 3 + 2]
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.meshBuf)
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW)
@@ -334,10 +355,13 @@ export class Renderer {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.meshBuf)
       const aPos = gl.getAttribLocation(this.prog, 'aPos')
       const aUV = gl.getAttribLocation(this.prog, 'aUV')
+      const aTileRect = gl.getAttribLocation(this.prog, 'aTileRect')
       const aNormal = gl.getAttribLocation(this.prog, 'aNormal')
-      gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 32, 0)
-      gl.enableVertexAttribArray(aUV); gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 32, 12)
-      gl.enableVertexAttribArray(aNormal); gl.vertexAttribPointer(aNormal, 3, gl.FLOAT, false, 32, 20)
+      // Stride 48 = 12 floats: pos@0 uv@12 tileRect@20 normal@36.
+      gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 48, 0)
+      gl.enableVertexAttribArray(aUV); gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 48, 12)
+      gl.enableVertexAttribArray(aTileRect); gl.vertexAttribPointer(aTileRect, 4, gl.FLOAT, false, 48, 20)
+      gl.enableVertexAttribArray(aNormal); gl.vertexAttribPointer(aNormal, 3, gl.FLOAT, false, 48, 36)
       gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK)
       gl.drawArrays(gl.TRIANGLES, 0, this.meshCount)
       gl.disable(gl.CULL_FACE)

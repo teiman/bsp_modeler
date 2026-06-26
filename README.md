@@ -1,76 +1,142 @@
 # BSP Modeler
 
-Generador de modelos en formato **BSP** a partir de un sistema de bloques en
-grid. La geometría y el texturizado son flujos independientes; el servidor Node
-compila el `.bsp` con el toolchain `qbsp/light/vis`.
+A generator of models in **BSP** format from a grid-based block system.
+Geometry and texturing are independent workflows; a Node server compiles the
+`.bsp` with the `qbsp/light/vis` toolchain.
 
-Ver [`bsp_modeler`](bsp_modeler) (concepto) y [`plan.md`](plan.md) (plan de
-implementación y decisiones de arquitectura).
+## Requirements
 
-## Requisitos
+- Node ≥ 20 (verified with v25), **pnpm** (verified with 10.33).
+- The **ericw-tools** compilation toolchain (`qbsp`, `light`; `bspinfo` for
+  verification). See [Toolchain (`bin/`)](#toolchain-bin) below.
 
-- Node ≥ 20 (verificado con v25), **pnpm** (verificado con 10.33).
-- El toolchain de compilación (`qbsp.exe`, `light.exe`, `vis.exe`,
-  `bspinfo.exe`). Cópialo a `./bin`, o apunta a uno existente con la variable
-  de entorno `BSP_BIN_DIR` (p.ej. el de `ultimata/editor-map/bin`).
+## Toolchain (`bin/`)
 
-## Puesta en marcha
+Compiling a real `.bsp` needs the [**ericw-tools**](https://github.com/ericwa/ericw-tools)
+binaries. They are **not bundled** (they are large and GPL-licensed) — you
+provide them yourself.
 
-**Un solo comando, un solo puerto.** El servidor sirve el editor *y* la API
-(texturas + compilación) en `http://localhost:7777`, con hot-reload del frontend.
+1. **Download** a release for your OS from
+   <https://github.com/ericwa/ericw-tools/releases> (or build from source — see
+   that repo). The free [Quake](https://www.quaddicted.com/) data is not needed;
+   only the tools.
+2. **Place the binaries in `./bin`** (the default the server looks in). On
+   Windows, copy the **whole** extracted folder, not just the `.exe` files — the
+   tools need their accompanying DLLs (`embree*.dll`, `tbb*.dll`, `Qt5*.dll`,
+   `freeglut.dll`, the `platforms/` folder, …). The folder must end up with at
+   least:
+
+   ```
+   bin/
+     qbsp.exe        light.exe        bspinfo.exe
+     embree.dll      embree3.dll      tbb.dll      tbbmalloc.dll
+     Qt5Core.dll     Qt5Gui.dll       Qt5Widgets.dll
+     freeglut.dll    platforms/
+   ```
+
+   On Linux/macOS place the executables (`qbsp`, `light`, `bspinfo`) and their
+   shared libraries in `bin/` the same way.
+3. **Or** point to an existing toolchain folder without copying, via the
+   `BSP_BIN_DIR` environment variable (PowerShell):
+
+   ```powershell
+   $env:BSP_BIN_DIR = "C:\path\to\ericw-tools"; pnpm start
+   ```
+
+> `bin/` is git-ignored, so the toolchain is never committed. Only `qbsp` and
+> `light` are invoked during compilation (`vis` is not used — loose object
+> models have no sealed PVS); `bspinfo` is handy for inspecting the output.
+
+## Getting started
+
+**One command, one port.** The server serves the editor *and* the API
+(textures + compilation) on `http://localhost:7777`, with frontend hot-reload.
 
 ```bash
-pnpm install            # respeta minimumReleaseAge (ver plan.md §0)
-pnpm start              # editor + API en http://localhost:7777
+pnpm install            # respects minimumReleaseAge (see below)
+pnpm start              # editor + API on http://localhost:7777
 ```
 
-> **Texturas dinámicas:** la carpeta `textures/` es la fuente de verdad. Suelta
-> un `<nombre>.png` y la textura aparece (refresca el editor); bórralo y
-> desaparece. El servidor decodifica el PNG y cachea un `<nombre>.tex` (índices
-> de paleta para el WAD) cuando falta o cambia. `pnpm gen-textures` solo crea el
-> set de ejemplo procedural; no es obligatorio.
+> **Supply-chain note:** installs respect `minimumReleaseAge` (configured in
+> `pnpm-workspace.yaml`), rejecting package versions published less than 3 days
+> ago to mitigate compromised-account / typosquatting attacks. The lockfile
+> (`pnpm-lock.yaml`) is committed; use `pnpm install --frozen-lockfile` for
+> reproducible builds.
 
-Para compilar BSP de verdad necesitas el toolchain. Cópialo a `./bin`, o apunta
-a uno existente (PowerShell):
+> **Dynamic textures:** the `textures/` folder is the source of truth. Drop a
+> `<name>.png` in and the texture appears (refresh the editor); delete it and it
+> disappears. The server decodes the PNG and caches a `<name>.tex` (palette
+> indices for the WAD) when missing or changed. `pnpm gen-textures` only creates
+> the procedural example set; it is not required.
 
-```powershell
-$env:BSP_BIN_DIR = "D:\code\ultimata\editor-map\bin"; pnpm start
-```
+> **Fullbright textures (`textures/fb/`):** a PNG inside `textures/fb/` is
+> quantized against Quake's **fullbright** palette (indices 224–255), so it
+> **always glows** (map lighting does not affect it) — for lights, screens and
+> beacons. Textures in the root are never fullbright (no glow added by
+> accident). The id is **flat**: `textures/fb/alarm.png` is named `alarm`; if the
+> same name exists in the root and in `fb/`, `fb/` wins. The fullbright ramp is
+> small (mostly reds, amber/gold, light cyan and white): paint with colors in
+> that range or you will get the nearest fullbright color.
 
-Producción (sirve el `dist/` ya construido, sin hot-reload):
+> **Animated / blinking textures (Quake's `+` convention):** name the frames
+> `+0<base>`, `+1<base>`, … `+9<base>` (e.g. `+0blink`, `+1blink`, …). Paint the
+> face with **frame 0** (`+0blink`); the engine cycles the rest on its own at
+> ~5 fps. The `.map` only references `+0`, but the WAD packs **all** present
+> frames automatically. Combine with `fb/` for lights that blink at full glow.
+> (The `+0`/`+a` pair is the off/on state of a switch.) Example sets included in
+> `textures/fb/`: `+Nblink` (red), `+Namber` (gold), `+Ncyan` (sky blue). In the
+> **editor palette only the `+0` frame** of each animation appears (the
+> `+1`..`+9` are hidden; they exist only so the WAD can cycle them). **Note:**
+> blinking and fullbright are only visible in the compiled `.bsp`; in the editor
+> viewport the texture looks flat and static.
+
+Remember you need the toolchain in `bin/` (or `BSP_BIN_DIR` set) to compile a
+real BSP — see [Toolchain (`bin/`)](#toolchain-bin) above.
+
+Production (serves the already-built `dist/`, no hot-reload):
 
 ```bash
 pnpm prod               # = vite build && node server/index.js --prod
 ```
 
-## Uso del editor
+## Using the editor
 
-- **Construir (B):** elige un bloque en la paleta izquierda y haz clic en la
-  grid. `Alt+clic` borra, `R` rota, `[` / `]` bajan/suben de capa (los *pips* de
-  la derecha y el indicador "Capa Z = N" reflejan la altura activa), y
-  `Shift+arrastrar` orbita la cámara.
-- **Pintar (P):** elige una textura (paleta derecha) y haz clic en una cara para
-  asignársela; `Alt+clic` la quita. La textura sigue a la cara aunque muevas o
-  gires el bloque (faceId estable).
-- **Compilar BSP:** botón de la barra superior. Elige perfil (`flat`/`fast`/`hq`)
-  y descarga el `.bsp` resultante.
+- **Build (B):** pick a block in the left palette and click on the grid.
+  `Alt+click` deletes, `R` rotates, `[` / `]` move down/up a layer (the *pips*
+  on the right and the "Layer Z = N" indicator reflect the active height), and
+  `Shift+drag` orbits the camera.
+- **Paint (P):** pick a texture (right palette) and click a face to assign it;
+  `Alt+click` removes it. The texture follows the face even if you move or
+  rotate the block (stable faceId).
+- **Compile BSP:** button in the top bar. Choose a profile and download the
+  `.bsp`:
+  - `flat` — geometry only, no lighting (fast, comes out fullbright).
+  - `fast` — basic lighting.
+  - `hq` — vis + softened lighting (`-extra4 -soft`).
+  - `hqao` — hq + ambient occlusion (AO/dirt): darker corners, more volume.
+  - `hqaop` — hqao + **Phong**: smooths shading between adjacent faces, so
+    faceted pieces (ball, beveled cube) look rounded without adding geometry.
+  > All lit profiles use a high minimum ambient (`_minlight`, floor 190) so the
+  > model is never fully black. It is a loose object: there is no directional
+  > sun (that would need `sky` faces); volume comes from AO.
 
-## Estructura
+## Structure
 
 ```
-src/            frontend (navegador)
-  core/         modelo de datos: model, geometry, instance
-  blocks/       catálogo de módulos (cube, ramp, bevel, cornerWedge)
-  gl/           renderer WebGL, meshBuilder, atlas, ghost
-  components/   UI Vue (Viewport3D, ModulePalette, TexturePalette, Toolbar)
-  store.js      estado reactivo
-server/         servidor Node (compilación)
-  index.js      API HTTP (/api/textures, /api/compile, ...)
-  compile/      mapWriter, wadWriter (WAD2), compileTools, brushes, paleta
+src/            frontend (browser)
+  core/         data model: model, geometry, instance
+  blocks/       module catalog (cube, ramp, bevel, cornerWedge)
+  gl/           WebGL renderer, meshBuilder, atlas, ghost
+  components/   Vue UI (Viewport3D, ModulePalette, TexturePalette, Toolbar)
+  store.js      reactive state
+server/         Node server (compilation)
+  index.js      HTTP API (/api/textures, /api/compile, ...)
+  compile/      mapWriter, wadWriter (WAD2), compileTools, brushes, palette
 scripts/        gen-textures.mjs
-textures/       texturas: <id>.png (fuente) + <id>.tex (cache autogen)
+textures/       textures: <id>.png (source) + <id>.tex (auto-generated cache)
+  fb/           fullbright textures (quantized to palette 224–255)
 tests/          model, geometry, mapWriter
-bin/            toolchain (no incluido)
+bin/            toolchain (not included)
 ```
 
 ## Tests
@@ -79,6 +145,5 @@ bin/            toolchain (no incluido)
 pnpm test
 ```
 
-Cubren serialización del modelo, generación de geometría/brushes por módulo y
-el `mapWriter`. El pipeline completo (`.map` → `.wad` → qbsp → `.bsp` válido) se
-verificó de extremo a extremo con el toolchain de `editor-map`.
+They cover model serialization, per-module geometry/brush generation and the
+`mapWriter`.
